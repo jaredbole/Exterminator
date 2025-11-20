@@ -5,8 +5,6 @@ from enemy import Enemy
 class BedbugEnemy(Enemy):
     def __init__(self, x, y):
         super().__init__(x, y, health=100)
-        self.x = x
-        self.y = y
         self.speed = 180.0
         self.size = 30
         self.damage = 15
@@ -31,7 +29,7 @@ class BedbugEnemy(Enemy):
         self.lunge_speed = 450
         self.vision_angle_threshold = 45  # degrees of player's vision cone
         self.safe_distance = 500          # distance to maintain while hiding
-        
+
         # Hiding stats
         self.max_visible_distance = 200
         self.min_visible_distance = 100
@@ -81,18 +79,27 @@ class BedbugEnemy(Enemy):
     # State Machine
     # ==========================
 
-    def update(self, dt, player):
+    def update(self, dt, player=None, walls=None, barricades=None, **kwargs):
+        """Run base movement/LOS handling, then Bedbug-specific behavior."""
+        # Run shared movement, wall, barricade, and LOS logic
+        super().update(dt, player=player, walls=walls, barricades=barricades)
+
+        # --- Bedbug stealth and attack behavior ---
         dist = self.distance_to(player)
         sees_player = self.is_in_player_vision(player)
-        
+
+        # Adjust transparency based on proximity
         if dist <= self.min_visible_distance:
             alpha = 255
         elif dist >= self.max_visible_distance:
             alpha = 0
         else:
-            alpha = int(255 * (1-(dist-self.min_visible_distance)/(self.max_visible_distance-self.min_visible_distance)))
-            
-        self.current_alpha = max(0, min(255,alpha))
+            alpha = int(
+                255 * (1 - (dist - self.min_visible_distance)
+                / (self.max_visible_distance - self.min_visible_distance))
+            )
+
+        self.current_alpha = max(0, min(255, alpha))
         self.image.set_alpha(self.current_alpha)
 
         # --- STATE MACHINE ---
@@ -105,23 +112,22 @@ class BedbugEnemy(Enemy):
                     self.state = "stalk"
 
         elif self.state == "hide":
-            # Move away from player while visible
             self.image.fill((80, 80, 80))
             if sees_player:
                 if dist < self.safe_distance:
-                # Move opposite direction from player
-                    away_vec = pygame.Vector2(self.rect.centerx - player.rect.centerx,
-                                              self.rect.centery - player.rect.centery)
+                    # Move opposite direction from player
+                    away_vec = pygame.Vector2(
+                        self.rect.centerx - player.rect.centerx,
+                        self.rect.centery - player.rect.centery,
+                    )
                     if away_vec.length() > 0:
                         away_vec = away_vec.normalize()
                         self.rect.centerx += away_vec.x * self.speed * dt
                         self.rect.centery += away_vec.y * self.speed * dt
             else:
-                # Once hidden, start stalking
                 self.state = "stalk"
 
         elif self.state == "stalk":
-            # Sneak toward player but only from behind
             self.image.fill((100, 100, 150))
             if sees_player:
                 self.state = "hide"
@@ -133,7 +139,6 @@ class BedbugEnemy(Enemy):
                     self.timer = self.windup_time
 
         elif self.state == "windup":
-            # Brief charge before lunge
             self.image.fill((200, 80, 50))
             self.stop_movement()
             self.timer -= dt
@@ -143,11 +148,10 @@ class BedbugEnemy(Enemy):
                 self.has_attacked = False
 
         elif self.state == "attack":
-            # Lunge forward
             self.image.fill((255, 50, 50))
             self.move_toward(player.rect.center, self.lunge_speed, dt)
 
-            # Deal damage once
+            # Damage once per attack
             if not self.has_attacked and self.rect.colliderect(player.rect):
                 player.take_damage(self.damage)
                 self.has_attacked = True
@@ -168,7 +172,6 @@ class BedbugEnemy(Enemy):
                 else:
                     self.state = "idle"
 
-        # Cooldown timer
+        # --- Cooldown timer + burn updates ---
         self.attack_cooldown = max(0, self.attack_cooldown - dt)
-        
         self.update_burning(dt)
